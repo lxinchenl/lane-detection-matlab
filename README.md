@@ -14,8 +14,7 @@ MATLAB 实现的车道线检测程序，支持图像和视频处理。
 | 文件 | 功能 |
 |------|------|
 | `img_lane_detect.m` | 图像车道线检测 |
-| `video_lane_detect.m` | 视频车道线检测 |
-| `lane_detection_gui.m` | 图形界面程序 |
+| `video_lane_detect.m` | 视频车道检查程序 |
 
 ## 使用方法
 
