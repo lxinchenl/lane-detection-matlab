@@ -212,15 +212,13 @@ if numLines > 0
         end
     end
     
-    % ========== 第3步：选择三条车道线（左、中、右）==========
+    % ========== 第3步：选择两条车道线（左、右）==========
     % 策略：
-    % - 最左车道线：在所有左斜线中，选择最靠左的一条（X坐标最小）
-    % - 中间车道线：在所有候选线中，选择最靠近中心的一条
-    % - 最右车道线：在所有右斜线中，选择最靠右的一条（X坐标最大）
+    % - 左边车道线：在所有左斜线中，选择评分最高的一条
+    % - 右边车道线：在所有右斜线中，选择评分最高的一条
     
-    selectedLeft = [];      % 最左车道线
-    selectedCenter = [];    % 中间车道线
-    selectedRight = [];     % 最右车道线
+    selectedLeft = [];      % 左边车道线
+    selectedRight = [];     % 右边车道线
     
     % 计算所有候选线的评分
     for k = 1:length(filteredLines)
@@ -231,61 +229,24 @@ if numLines > 0
         filteredLines(k).score = len * 2 - dist * 0.5 + abs(angle) * 0.3;
     end
     
-    % 选择最左车道线（左斜线中X坐标最小的）
+    % 选择左边车道线（左斜线中评分最高的）
     if ~isempty(leftLines)
-        % 按中点X坐标从小到大排序（越靠左X越小）
-        leftMidX = arrayfun(@(x) x.midpoint(1), leftLines);
-        [~, sortIdx] = sort(leftMidX, 'ascend');
-        sortedLeft = leftLines(sortIdx);
-        
-        % 选择最靠左的一条，但要排除太靠左边缘的（可能是护栏）
-        for k = 1:length(sortedLeft)
-            if sortedLeft(k).midpoint(1) > imgWidth * 0.15  % 不能太靠左边缘
-                selectedLeft = sortedLeft(k);
-                break;
+        bestScore = -inf;
+        for k = 1:length(leftLines)
+            if leftLines(k).score > bestScore
+                bestScore = leftLines(k).score;
+                selectedLeft = leftLines(k);
             end
         end
     end
     
-    % 选择最右车道线（右斜线中X坐标最大的）
+    % 选择右边车道线（右斜线中评分最高的）
     if ~isempty(rightLines)
-        % 按中点X坐标从大到小排序（越靠右X越大）
-        rightMidX = arrayfun(@(x) x.midpoint(1), rightLines);
-        [~, sortIdx] = sort(rightMidX, 'descend');
-        sortedRight = rightLines(sortIdx);
-        
-        % 选择最靠右的一条，但要排除太靠右边缘的
-        for k = 1:length(sortedRight)
-            if sortedRight(k).midpoint(1) < imgWidth * 0.85  % 不能太靠右边缘
-                selectedRight = sortedRight(k);
-                break;
-            end
-        end
-    end
-    
-    % 选择中间车道线（所有候选线中，最靠近中心且未被选中的）
-    if ~isempty(filteredLines)
-        % 按距离中心从小到大排序
-        [~, sortIdx] = sort([filteredLines.distanceToCenter], 'ascend');
-        sortedByDist = filteredLines(sortIdx);
-        
-        % 找到最靠近中心且不是已选中的左或右车道线
-        for k = 1:length(sortedByDist)
-            midX = sortedByDist(k).midpoint(1);
-            
-            % 检查是否已被选为左或右车道线
-            isAlreadySelected = false;
-            if ~isempty(selectedLeft) && abs(midX - selectedLeft.midpoint(1)) < 50
-                isAlreadySelected = true;
-            end
-            if ~isempty(selectedRight) && abs(midX - selectedRight.midpoint(1)) < 50
-                isAlreadySelected = true;
-            end
-            
-            % 如果未被选中且靠近中心区域，则选为中间车道线
-            if ~isAlreadySelected && midX > imgWidth * 0.3 && midX < imgWidth * 0.7
-                selectedCenter = sortedByDist(k);
-                break;
+        bestScore = -inf;
+        for k = 1:length(rightLines)
+            if rightLines(k).score > bestScore
+                bestScore = rightLines(k).score;
+                selectedRight = rightLines(k);
             end
         end
     end
@@ -298,19 +259,9 @@ if numLines > 0
     if isempty(selectedRight) && ~isempty(rightLines)
         selectedRight = rightLines(1);
     end
-    if isempty(selectedCenter)
-        % 如果没有中间线，尝试找一条靠近中心的线
-        for k = 1:length(filteredLines)
-            midX = filteredLines(k).midpoint(1);
-            if midX > imgWidth * 0.4 && midX < imgWidth * 0.6
-                selectedCenter = filteredLines(k);
-                break;
-            end
-        end
-    end
     
-    fprintf('最终选中: 左=%d条, 中=%d条, 右=%d条\n', ...
-        ~isempty(selectedLeft), ~isempty(selectedCenter), ~isempty(selectedRight));
+    fprintf('最终选中: 左=%d条, 右=%d条\n', ...
+        ~isempty(selectedLeft), ~isempty(selectedRight));
     
     % ========== 第5步：绘制结果 ==========
     figure('Name','优化后的车道线','NumberTitle','off');
@@ -323,7 +274,7 @@ if numLines > 0
         plot(xy(:,1), xy(:,2)+roiStart, '--', 'LineWidth', 1, 'Color', [0.5 0.5 0.5 0.3]);
     end
     
-    % 显示选中的最左车道线（蓝色）
+    % 显示选中的左车道线（蓝色）
     if ~isempty(selectedLeft)
         xy = [selectedLeft.point1; selectedLeft.point2];
         plot(xy(:,1), xy(:,2)+roiStart, 'LineWidth', 5, 'Color', 'blue');
@@ -333,17 +284,7 @@ if numLines > 0
             selectedLeft.angle, selectedLeft.length, selectedLeft.distanceToCenter);
     end
     
-    % 显示选中的中间车道线（红色）
-    if ~isempty(selectedCenter)
-        xy = [selectedCenter.point1; selectedCenter.point2];
-        plot(xy(:,1), xy(:,2)+roiStart, 'LineWidth', 5, 'Color', 'red');
-        plot(xy(1,1), xy(1,2)+roiStart, 'rx', 'LineWidth', 2, 'MarkerSize', 12);
-        plot(xy(2,1), xy(2,2)+roiStart, 'ro', 'LineWidth', 2, 'MarkerSize', 12);
-        fprintf('选中中间车道线: 角度=%.1f°, 长度=%.1f, 距中心=%.1f\n', ...
-            selectedCenter.angle, selectedCenter.length, selectedCenter.distanceToCenter);
-    end
-    
-    % 显示选中的最右车道线（绿色）
+    % 显示选中的右车道线（绿色）
     if ~isempty(selectedRight)
         xy = [selectedRight.point1; selectedRight.point2];
         plot(xy(:,1), xy(:,2)+roiStart, 'LineWidth', 5, 'Color', 'green');
@@ -356,7 +297,7 @@ if numLines > 0
     % 显示图像中心线
     plot([imgCenterX, imgCenterX], [roiStart, size(rgbimg,1)], 'y--', 'LineWidth', 1);
     
-    legend('候选直线', '左车道线', '中间车道线', '右车道线', '图像中心');
+    legend('候选直线', '左车道线', '右车道线', '图像中心');
     hold off;
     
     % ========== 第6步：延长到图像边界 ==========
@@ -385,27 +326,6 @@ if numLines > 0
             x_top = p1_full(1) + (y_top - p1_full(2)) / slope;
             
             plot([x_top, x_bottom], [y_top, y_bottom], 'LineWidth', 5, 'Color', 'blue');
-        end
-    end
-    
-    % 延长中间车道线（红色）
-    if ~isempty(selectedCenter)
-        p1 = selectedCenter.point1;
-        p2 = selectedCenter.point2;
-        p1_full = [p1(1), p1(2)+roiStart];
-        p2_full = [p2(1), p2(2)+roiStart];
-        
-        slope = selectedCenter.slope;
-        if abs(slope) > 0.01 && abs(slope) < 100
-            % 延长到底部
-            y_bottom = imgHeight_full;
-            x_bottom = p2_full(1) + (y_bottom - p2_full(2)) / slope;
-            
-            % 延长ROI顶部
-            y_top = roiStart;
-            x_top = p1_full(1) + (y_top - p1_full(2)) / slope;
-            
-            plot([x_top, x_bottom], [y_top, y_bottom], 'LineWidth', 5, 'Color', 'red');
         end
     end
     
