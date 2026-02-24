@@ -201,63 +201,37 @@ if numLines > 0
     fprintf('第1步 初步过滤后剩余 %d 条直线\n', length(filteredLines));
     
     % ========== 第2步：按左右分类 ==========
-    leftLines = [];
-    rightLines = [];
+    leftLines = filteredLines(strcmp({filteredLines.side}, 'left'));
+    rightLines = filteredLines(strcmp({filteredLines.side}, 'right'));
     
-    for k = 1:length(filteredLines)
-        if strcmp(filteredLines(k).side, 'left')
-            leftLines = [leftLines; filteredLines(k)];
-        else
-            rightLines = [rightLines; filteredLines(k)];
-        end
-    end
+    % ========== 第3步：选择最优车道线（与video_lane_detect.m同步）==========
+    % 使用与视频检测相同的筛选策略
+    params.LEFT_MIN_X = 0.2;
+    params.LEFT_MAX_X = 0.9;
+    params.RIGHT_MIN_X = 1.1;
+    params.RIGHT_MAX_X = 0.8;
+    params.SCORE_LENGTH_WEIGHT = 2;
+    params.SCORE_DISTANCE_WEIGHT = 0.5;
+    params.SCORE_ANGLE_WEIGHT = 0.3;
     
-    % ========== 第3步：选择两条车道线（左、右）==========
-    % 策略：
-    % - 左边车道线：在所有左斜线中，选择评分最高的一条
-    % - 右边车道线：在所有右斜线中，选择评分最高的一条
-    
-    selectedLeft = [];      % 左边车道线
-    selectedRight = [];     % 右边车道线
-    
-    % 计算所有候选线的评分
-    for k = 1:length(filteredLines)
-        len = filteredLines(k).length;
-        dist = filteredLines(k).distanceToCenter;
-        angle = filteredLines(k).angle;
-        % 评分公式：长度权重高，距离中心近的加分
-        filteredLines(k).score = len * 2 - dist * 0.5 + abs(angle) * 0.3;
-    end
-    
-    % 选择左边车道线（左斜线中评分最高的）
-    if ~isempty(leftLines)
-        bestScore = -inf;
-        for k = 1:length(leftLines)
-            if leftLines(k).score > bestScore
-                bestScore = leftLines(k).score;
-                selectedLeft = leftLines(k);
-            end
-        end
-    end
-    
-    % 选择右边车道线（右斜线中评分最高的）
-    if ~isempty(rightLines)
-        bestScore = -inf;
-        for k = 1:length(rightLines)
-            if rightLines(k).score > bestScore
-                bestScore = rightLines(k).score;
-                selectedRight = rightLines(k);
-            end
-        end
-    end
+    selectedLeft = selectBestLane(leftLines, imgWidth, imgCenterX, params, 'left');
+    selectedRight = selectBestLane(rightLines, imgWidth, imgCenterX, params, 'right');
     
     % ========== 第4步：备选方案 ==========
-    % 如果某条车道线缺失，尝试补充
-    if isempty(selectedLeft) && ~isempty(leftLines)
-        selectedLeft = leftLines(1);
-    end
-    if isempty(selectedRight) && ~isempty(rightLines)
-        selectedRight = rightLines(1);
+    if isempty(selectedLeft) && ~isempty(rightLines)
+        for k = 1:length(leftLines)
+            if leftLines(k).midpoint(1) < imgCenterX
+                selectedLeft = leftLines(k);
+                break;
+            end
+        end
+    elseif isempty(selectedRight) && ~isempty(leftLines)
+        for k = 1:length(rightLines)
+            if rightLines(k).midpoint(1) > imgCenterX
+                selectedRight = rightLines(k);
+                break;
+            end
+        end
     end
     
     fprintf('最终选中: 左=%d条, 右=%d条\n', ...
@@ -351,4 +325,56 @@ if numLines > 0
     hold off;
 else
     fprintf('未检测到任何直线\n');
+end
+
+%% ==================== 子函数（与video_lane_detect.m同步）====================
+
+function bestLane = selectBestLane(lines, imgWidth, imgCenterX, params, side)
+    % 从检测到的直线中选择最优车道线（与视频检测同步）
+    
+    bestLane = [];
+    if isempty(lines)
+        return;
+    end
+    
+    % 按距离中心排序
+    [~, sortIdx] = sort([lines.distanceToCenter], 'ascend');
+    sortedLines = lines(sortIdx);
+    
+    % 位置约束筛选
+    validLines = [];
+    for k = 1:length(sortedLines)
+        midX = sortedLines(k).midpoint(1);
+        if strcmp(side, 'left')
+            % 左边线应在中心左侧，且不能太靠边缘
+            if midX < imgCenterX * params.LEFT_MAX_X && midX > imgWidth * params.LEFT_MIN_X
+                validLines = [validLines; sortedLines(k)];
+            end
+        else
+            % 右边线应在中心右侧，且不能太靠边缘
+            if midX > imgCenterX * params.RIGHT_MIN_X && midX < imgWidth * params.RIGHT_MAX_X
+                validLines = [validLines; sortedLines(k)];
+            end
+        end
+    end
+    
+    % 评分选择最优
+    if ~isempty(validLines)
+        bestScore = -inf;
+        for k = 1:length(validLines)
+            len = validLines(k).length;
+            dist = validLines(k).distanceToCenter;
+            angle = validLines(k).angle;
+            
+            % 评分：长度权重高，距离中心近的加分
+            score = len * params.SCORE_LENGTH_WEIGHT - ...
+                    dist * params.SCORE_DISTANCE_WEIGHT + ...
+                    abs(angle) * params.SCORE_ANGLE_WEIGHT;
+            
+            if score > bestScore
+                bestScore = score;
+                bestLane = validLines(k);
+            end
+        end
+    end
 end
